@@ -10,19 +10,26 @@ import (
 )
 
 type Store struct {
-	directory string
-	lockStore map[string]bool
-	lsMutex   *sync.Mutex
+	directory   string
+	lockStore   map[string]bool
+	expirations map[string]time.Time
+	lsMutex     *sync.Mutex
 }
 
 func NewStore(directory string) (*Store, error) {
 	out := &Store{
-		directory: directory,
-		lockStore: map[string]bool{},
-		lsMutex:   &sync.Mutex{},
+		directory:   directory,
+		expirations: map[string]time.Time{},
+		lockStore:   map[string]bool{},
+		lsMutex:     &sync.Mutex{},
 	}
 
 	err := os.MkdirAll(directory, 0700)
+	if err != nil {
+		return nil, err
+	}
+
+	err = out.runGC(gcDefault)
 	if err != nil {
 		return nil, err
 	}
@@ -45,7 +52,18 @@ func (s *Store) SetKV(key string, value []byte, expiration time.Duration) error 
 		}
 	}
 
-	return os.WriteFile(p, value, 0644)
+	err = os.WriteFile(p, value, 0644)
+	if err != nil {
+		return err
+	}
+
+	if expiration > 0 {
+		s.lsMutex.Lock()
+		defer s.lsMutex.Unlock()
+		s.expirations[p] = time.Now().Add(expiration)
+	}
+
+	return err
 }
 
 func (s *Store) GetKV(key string) ([]byte, error) {
@@ -70,7 +88,16 @@ func (s *Store) DeleteKV(key string) error {
 		return err
 	}
 
-	return os.Remove(p)
+	err = os.Remove(p)
+	if err != nil {
+		return err
+	}
+
+	s.lsMutex.Lock()
+	defer s.lsMutex.Unlock()
+	delete(s.expirations, p)
+
+	return nil
 }
 
 func (s *Store) LockCert(domain string, timeout time.Duration) (bool, error) {
