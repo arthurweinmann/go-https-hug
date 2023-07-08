@@ -40,7 +40,12 @@ func NewStore(directory string) (*Store, error) {
 func (s *Store) SetKV(key string, value []byte, expiration time.Duration) error {
 	p := filepath.Join(s.directory, key)
 
-	_, err := os.Stat(p)
+	err := os.MkdirAll(filepath.Dir(p), 0700)
+	if err != nil {
+		return err
+	}
+
+	_, err = os.Stat(p)
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
