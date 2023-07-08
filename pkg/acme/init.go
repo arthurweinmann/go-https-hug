@@ -327,5 +327,21 @@ func Init(param *InitParameters) error {
 		return err
 	}
 
+	for root, subs := range settings.AuthorizedDomains {
+		var domains []string
+		domains = append(domains, root)
+
+		for d, allowed := range subs {
+			if allowed {
+				domains = append(domains, d)
+			}
+		}
+
+		err = ToggleCertificate(domains)
+		if err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
