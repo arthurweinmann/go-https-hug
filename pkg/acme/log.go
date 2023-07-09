@@ -31,6 +31,6 @@ func (l LogLevel) String() string {
 
 func logthis(level LogLevel, mess string, args ...any) {
 	if level >= settings.LogLevel {
-		fmt.Printf(">    %s: %s\n", level, fmt.Sprintf(mess, args...))
+		settings.Logger.Write([]byte(fmt.Sprintf(">    %s: %s\n", level, fmt.Sprintf(mess, args...))))
 	}
 }

@@ -292,6 +292,13 @@ func Init(param *InitParameters) error {
 		return fmt.Errorf("We need a Store in the parameters")
 	}
 
+	if settings.LogLevel != NONE {
+		switch settings.Logger.(type) {
+		case nil:
+			return fmt.Errorf("We need a Logger in the parameters when the LogLevel is different from NONE")
+		}
+	}
+
 	if settings.InMemoryCacheSize > 0 {
 		cache = fastcache.New(settings.InMemoryCacheSize)
 	}
