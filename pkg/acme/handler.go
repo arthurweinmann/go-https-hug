@@ -96,7 +96,6 @@ func CreateCertificate(rootdomain string, domains []string, lock bool) ([]byte, 
 		Bundle:  true,
 	})
 	if err != nil {
-		fmt.Println("Obtain cert err", rootdomain, err)
 		return nil, nil, err
 	}
 

@@ -42,7 +42,7 @@ func GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
 // Serve is blocking
 // Example of addr is :443
 // logfilepath is optional and can be empty
-func Serve(addr string, h http.Handler, logfilepath string) error {
+func ServeHTTPS(addr string, h http.Handler, logfilepath string) error {
 	conn, err := net.Listen("tcp", addr)
 	if err != nil {
 		log.Fatal(err)
