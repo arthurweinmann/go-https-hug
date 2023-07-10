@@ -6,13 +6,9 @@ import (
 	"crypto/rand"
 	"fmt"
 	"io"
-	"net/http"
 	"net/mail"
-	"strings"
-	"time"
 
 	"github.com/VictoriaMetrics/fastcache"
-	"github.com/arthurweinmann/go-https-hug/internal/utils"
 	"github.com/arthurweinmann/go-https-hug/pkg/storage"
 	"github.com/go-acme/lego/v4/providers/dns/alidns"
 	"github.com/go-acme/lego/v4/providers/dns/allinkl"
@@ -155,10 +151,6 @@ type InitParameters struct {
 
 	LogLevel LogLevel
 	Logger   io.Writer
-
-	// if BootStrap is true, Init will start an HTTP server on port 80 before attempting to create the certificates in AuthorizedDomains
-	// if BootStrap is false, it is your responsability to make sure a potential HTTP Challenge for the certificates goes through
-	Bootstrap bool
 }
 
 type DNSProviderConfig struct {
@@ -346,22 +338,6 @@ func Init(param *InitParameters) error {
 		return err
 	}
 
-	if settings.Bootstrap {
-		serv := &http.Server{
-			Addr:    ":80",
-			Handler: &bootstrapRouter{},
-
-			ReadHeaderTimeout: 30 * time.Second,
-			ReadTimeout:       1 * time.Minute,
-			WriteTimeout:      1 * time.Minute,
-			IdleTimeout:       5 * time.Minute,
-		}
-		defer serv.Close()
-
-		go serv.ListenAndServe()
-		time.Sleep(3 * time.Second)
-	}
-
 	for root, subs := range settings.AuthorizedDomains {
 		var domains []string
 		domains = append(domains, root)
@@ -381,26 +357,4 @@ func Init(param *InitParameters) error {
 	}
 
 	return nil
-}
-
-type bootstrapRouter struct{}
-
-func (s *bootstrapRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	stripedhost := utils.StripPort(r.Host)
-
-	if strings.HasPrefix(r.URL.Path, ACME_CHALLENGE_URL_PREFIX) && len(r.URL.Path) > len(ACME_CHALLENGE_URL_PREFIX) {
-		keyauth, err := GetChallenge(stripedhost, r.URL.Path[len(ACME_CHALLENGE_URL_PREFIX):])
-		if err != nil {
-			logthis(ERROR, "certificates.GetChallenge: %v", err)
-			w.WriteHeader(404)
-			return
-		}
-
-		w.WriteHeader(200)
-		w.Write(keyauth)
-
-		logthis(INFO, "served http challend for: %s", stripedhost)
-
-		return
-	}
 }

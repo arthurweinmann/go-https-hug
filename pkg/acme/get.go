@@ -3,11 +3,6 @@ package acme
 import (
 	"crypto/tls"
 	"fmt"
-	"log"
-	"net"
-	"net/http"
-	"os"
-	"time"
 
 	"github.com/arthurweinmann/go-https-hug/internal/utils"
 )
@@ -37,43 +32,4 @@ func GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
 	}
 
 	return tlscert, nil
-}
-
-// Serve is blocking
-// Example of addr is :443
-// logfilepath is optional and can be empty
-func ServeHTTPS(addr string, h http.Handler, logfilepath string) error {
-	conn, err := net.Listen("tcp", addr)
-	if err != nil {
-		log.Fatal(err)
-	}
-	tlsConfig := new(tls.Config)
-	tlsConfig.GetCertificate = GetCertificate
-	tlsListener := tls.NewListener(conn, tlsConfig)
-
-	var f *os.File
-	if logfilepath != "" {
-		f, err := os.OpenFile("https.log", os.O_CREATE|os.O_RDWR, 0700)
-		if err != nil {
-			log.Fatal(err)
-		}
-		defer f.Close()
-	}
-
-	serv := &http.Server{
-		Addr:    addr,
-		Handler: h,
-
-		ReadHeaderTimeout: 30 * time.Second,
-		ReadTimeout:       1 * time.Minute,
-		WriteTimeout:      1 * time.Minute,
-		IdleTimeout:       5 * time.Minute,
-	}
-
-	if f != nil {
-		serv.ErrorLog = log.New(f, "https: ", log.Llongfile|log.Ltime|log.Ldate)
-	}
-
-	fmt.Println("Starting HTTPS Server on", addr)
-	return serv.Serve(tlsListener)
 }
