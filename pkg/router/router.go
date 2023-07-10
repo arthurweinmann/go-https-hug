@@ -17,10 +17,10 @@ import (
 type Router struct {
 	State any
 
-	serveHTMLFolder      string
-	htmlFolderDomainName string
-	redirectHTTP2HTTPS   bool
-	perDomain            map[string]func(r *Router, spath []string, w http.ResponseWriter, req *http.Request)
+	serveHTMLFolder       string
+	htmlFolderDomainNames []string
+	redirectHTTP2HTTPS    bool
+	perDomain             map[string]func(r *Router, spath []string, w http.ResponseWriter, req *http.Request)
 }
 
 type RouterConfig struct {
@@ -28,8 +28,8 @@ type RouterConfig struct {
 	State any
 
 	// folder path
-	ServeHTMLFolder      string
-	HTMLFolderDomainName string
+	ServeHTMLFolder       string
+	HTMLFolderDomainNames []string
 
 	RedirectHTTP2HTTPS bool
 
@@ -37,17 +37,17 @@ type RouterConfig struct {
 }
 
 func NewRouter(config *RouterConfig) (*Router, error) {
-	if (config.ServeHTMLFolder != "" || config.HTMLFolderDomainName != "") &&
-		(config.ServeHTMLFolder == "" || config.HTMLFolderDomainName == "") {
+	if (config.ServeHTMLFolder != "" || config.HTMLFolderDomainNames != nil) &&
+		(config.ServeHTMLFolder == "" || config.HTMLFolderDomainNames == nil) {
 		return nil, fmt.Errorf("When they are provided, we need both ServeHTMLFolder and HTMLFolderDomainName filled at the same time")
 	}
 
 	return &Router{
-		State:                config.State,
-		serveHTMLFolder:      config.ServeHTMLFolder,
-		htmlFolderDomainName: config.HTMLFolderDomainName,
-		redirectHTTP2HTTPS:   config.RedirectHTTP2HTTPS,
-		perDomain:            config.PerDomain,
+		State:                 config.State,
+		serveHTMLFolder:       config.ServeHTMLFolder,
+		htmlFolderDomainNames: config.HTMLFolderDomainNames,
+		redirectHTTP2HTTPS:    config.RedirectHTTP2HTTPS,
+		perDomain:             config.PerDomain,
 	}, nil
 }
 
@@ -74,21 +74,24 @@ func (s *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	stripedhost = strings.ToLower(stripedhost)
+
 	h, ok := s.perDomain[stripedhost]
 	if ok {
 		s.api(w, r, stripedhost, h)
 	}
 
-	if stripedhost == s.htmlFolderDomainName {
-		s.dashboard(w, r)
-		return
+	for i := 0; i < len(s.htmlFolderDomainNames); i++ {
+		if s.htmlFolderDomainNames[i] == stripedhost {
+			s.dashboard(w, r, s.htmlFolderDomainNames[i])
+			return
+		}
 	}
 
 	utils.SendError(w, "we do not recognize this domain name", "invalidDomainName", 403)
 	return
 }
 
-func (s *Router) dashboard(w http.ResponseWriter, r *http.Request) {
+func (s *Router) dashboard(w http.ResponseWriter, r *http.Request, domain string) {
 	// Check for .. in the path and respond with an error if it is present
 	// otherwise users could access any file on the server
 	if utils.ContainsDotDot(r.URL.Path) {
@@ -96,7 +99,7 @@ func (s *Router) dashboard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := s.setupCORS(w, s.htmlFolderDomainName)
+	err := s.setupCORS(w, domain)
 	if err != nil {
 		utils.SendError(w, "this origin is not allowed", "invalidOriginHeader", 403)
 		return
