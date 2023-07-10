@@ -3,8 +3,14 @@ package utils
 import "net/http"
 
 func Redirect2HTTPS(w http.ResponseWriter, req *http.Request) {
+	scheme := "https"
+
+	if req.URL.Scheme == "ws" {
+		scheme = "wss"
+	}
+
 	// remove/add not default ports from req.Host
-	target := "https://" + req.Host + req.URL.Path
+	target := scheme + "://" + req.Host + req.URL.Path
 	if len(req.URL.RawQuery) > 0 {
 		target += "?" + req.URL.RawQuery
 	}

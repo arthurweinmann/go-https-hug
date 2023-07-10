@@ -5,6 +5,7 @@ go 1.20
 require (
 	github.com/VictoriaMetrics/fastcache v1.12.1
 	github.com/go-acme/lego/v4 v4.12.3
+	github.com/gorilla/websocket v1.4.2
 	golang.org/x/net v0.8.0
 )
 
