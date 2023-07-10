@@ -21,6 +21,7 @@ type Router struct {
 	htmlFolderDomainNames []string
 	redirectHTTP2HTTPS    bool
 	perDomain             map[string]func(r *Router, spath []string, w http.ResponseWriter, req *http.Request)
+	onlyHTTPS             bool
 }
 
 type RouterConfig struct {
@@ -32,6 +33,7 @@ type RouterConfig struct {
 	HTMLFolderDomainNames []string
 
 	RedirectHTTP2HTTPS bool
+	OnlyHTTPS          bool
 
 	PerDomain map[string]func(r *Router, spath []string, w http.ResponseWriter, req *http.Request)
 }
@@ -47,6 +49,7 @@ func NewRouter(config *RouterConfig) (*Router, error) {
 		serveHTMLFolder:       config.ServeHTMLFolder,
 		htmlFolderDomainNames: config.HTMLFolderDomainNames,
 		redirectHTTP2HTTPS:    config.RedirectHTTP2HTTPS,
+		onlyHTTPS:             config.OnlyHTTPS,
 		perDomain:             config.PerDomain,
 	}, nil
 }
@@ -68,9 +71,16 @@ func (s *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if s.redirectHTTP2HTTPS && r.URL.Scheme != "https" && r.URL.Scheme != "wss" {
-		utils.Redirect2HTTPS(w, r)
-		return
+	if r.TLS == nil {
+		if s.redirectHTTP2HTTPS {
+			utils.Redirect2HTTPS(w, r)
+			return
+		}
+
+		if s.onlyHTTPS {
+			utils.SendError(w, "we only serve our website through https", "invalidProtocol", 403)
+			return
+		}
 	}
 
 	stripedhost = strings.ToLower(stripedhost)
