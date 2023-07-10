@@ -71,14 +71,18 @@ func (s *Store) runGC(gclevel int) error {
 
 	for _, v := range fileArr {
 		s.lsMutex.Lock()
-		defer s.lsMutex.Unlock()
-
 		deadline, ok := s.expirations[v.fname]
+		s.lsMutex.Unlock()
+
 		if ok && time.Now().After(deadline) {
 			err := os.Remove(v.fname)
 			if err != nil {
 				return err
 			}
+
+			s.lsMutex.Lock()
+			delete(s.expirations, v.fname)
+			s.lsMutex.Unlock()
 		}
 	}
 
