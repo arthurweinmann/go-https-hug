@@ -22,6 +22,7 @@ type Router struct {
 	redirectHTTP2HTTPS    bool
 	perDomain             map[string]func(r *Router, spath []string, w http.ResponseWriter, req *http.Request)
 	onlyHTTPS             bool
+	allowedHeaders        string
 }
 
 type RouterConfig struct {
@@ -36,6 +37,8 @@ type RouterConfig struct {
 	OnlyHTTPS          bool
 
 	PerDomain map[string]func(r *Router, spath []string, w http.ResponseWriter, req *http.Request)
+
+	AllowCustomHeaders []string
 }
 
 func NewRouter(config *RouterConfig) (*Router, error) {
@@ -44,6 +47,12 @@ func NewRouter(config *RouterConfig) (*Router, error) {
 		return nil, fmt.Errorf("When they are provided, we need both ServeHTMLFolder and HTMLFolderDomainName filled at the same time")
 	}
 
+	allowedHeaders := strings.Join(config.AllowCustomHeaders, ",")
+	if allowedHeaders != "" {
+		allowedHeaders += ","
+	}
+	allowedHeaders += "Origin,Accept,Access-Control-Allow-Origin,Access-Control-Allow-Methods,Access-Control-Allow-Headers,Access-Control-Allow-Credentials,Accept-Encoding,Accept-Language,Access-Control-Request-Headers,Access-Control-Request-Method,Cache-Control,Connection,Host,Pragma,Referer,Sec-Fetch-Dest,Sec-Fetch-Mode,Sec-Fetch-Site,Set-Cookie,User-Agent,Vary,Method,Content-Type,Content-Length"
+
 	return &Router{
 		State:                 config.State,
 		serveHTMLFolder:       config.ServeHTMLFolder,
@@ -51,6 +60,7 @@ func NewRouter(config *RouterConfig) (*Router, error) {
 		redirectHTTP2HTTPS:    config.RedirectHTTP2HTTPS,
 		onlyHTTPS:             config.OnlyHTTPS,
 		perDomain:             config.PerDomain,
+		allowedHeaders:        allowedHeaders,
 	}, nil
 }
 
@@ -109,10 +119,18 @@ func (s *Router) dashboard(w http.ResponseWriter, r *http.Request, domain string
 		return
 	}
 
-	err := s.setupCORS(w, domain)
-	if err != nil {
-		utils.SendError(w, "this origin is not allowed", "invalidOriginHeader", 403)
-		return
+	if r.TLS == nil {
+		err := s.setupCORS(w, "http://"+domain)
+		if err != nil {
+			utils.SendError(w, "this origin is not allowed", "invalidOriginHeader", 403)
+			return
+		}
+	} else {
+		err := s.setupCORS(w, "https://"+domain)
+		if err != nil {
+			utils.SendError(w, "this origin is not allowed", "invalidOriginHeader", 403)
+			return
+		}
 	}
 
 	if r.Method == "OPTIONS" {
@@ -205,10 +223,18 @@ func (s *Router) dashboard(w http.ResponseWriter, r *http.Request, domain string
 func (s *Router) api(w http.ResponseWriter, r *http.Request, domain string, h func(r *Router, spath []string, w http.ResponseWriter, req *http.Request)) {
 	spath := utils.SplitSlash(r.URL.Path)
 
-	err := s.setupCORS(w, domain)
-	if err != nil {
-		utils.SendError(w, "this origin is not allowed", "invalidOriginHeader", 403)
-		return
+	if r.TLS == nil {
+		err := s.setupCORS(w, "http://"+domain)
+		if err != nil {
+			utils.SendError(w, "this origin is not allowed", "invalidOriginHeader", 403)
+			return
+		}
+	} else {
+		err := s.setupCORS(w, "https://"+domain)
+		if err != nil {
+			utils.SendError(w, "this origin is not allowed", "invalidOriginHeader", 403)
+			return
+		}
 	}
 
 	if r.Method == "OPTIONS" {
@@ -231,7 +257,7 @@ func (s *Router) setupCORS(w http.ResponseWriter, origin string) error {
 	h.Add("Access-Control-Allow-Credentials", "true")
 
 	h.Add("Access-Control-Allow-Methods", "POST, PUT, GET, DELETE, OPTIONS")
-	h.Add("Access-Control-Allow-Headers", "Origin,Accept,Access-Control-Allow-Origin,Access-Control-Allow-Methods,Access-Control-Allow-Headers,Access-Control-Allow-Credentials,Accept-Encoding,Accept-Language,Access-Control-Request-Headers,Access-Control-Request-Method,Cache-Control,Connection,Host,Pragma,Referer,Sec-Fetch-Dest,Sec-Fetch-Mode,Sec-Fetch-Site,Set-Cookie,User-Agent,Vary,Method,Content-Type,Content-Length")
+	h.Add("Access-Control-Allow-Headers", s.allowedHeaders)
 	h.Add("Vary", "*")
 	h.Add("Cache-Control", "no-store")
 
