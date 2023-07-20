@@ -115,6 +115,9 @@ func (s *Store) LockCert(domain string, timeout time.Duration) (bool, error) {
 
 	s.lockStore[domain] = true
 	go func() {
+		// TODO: handle the case where UnlockCert is called before the timeout expiring, which is fine
+		// but then this goroutine potentially removes the lock from a call that came just after the call to UnlockCert
+		// and before the timeout here expired
 		time.Sleep(timeout)
 		s.lsMutex.Lock()
 		defer s.lsMutex.Unlock()

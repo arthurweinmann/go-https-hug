@@ -1,8 +1,9 @@
 package acme
 
 import (
+	"bytes"
 	"crypto/tls"
-	"encoding/binary"
+	"encoding/gob"
 	"errors"
 	"fmt"
 	"strings"
@@ -99,7 +100,7 @@ func CreateCertificate(rootdomain string, domains []string, lock bool) ([]byte, 
 		return nil, nil, err
 	}
 
-	err = storeCertificate(rootdomain, certificates.Certificate, certificates.PrivateKey)
+	err = storeCertificate(rootdomain, domains, certificates.Certificate, certificates.PrivateKey)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -170,22 +171,36 @@ func ToggleCertificate(domains []string) error {
 }
 
 // TODO: store the list of subdomains too in order to recreate the cert if this list has changed
-func storeCertificate(domain string, certificate, privateKey []byte) error {
-	b := make([]byte, 10, len(certificate)+len(privateKey)+10)
+func storeCertificate(rootdomain string, domains []string, certificate, privateKey []byte) error {
+	var buf bytes.Buffer
+	enc := gob.NewEncoder(&buf)
 
-	binary.BigEndian.PutUint64(b[:8], uint64(time.Now().Add(744*time.Hour).Unix()))
-	binary.BigEndian.PutUint16(b[8:], uint16(len(certificate)))
+	err := enc.Encode(struct {
+		Deadline    int64
+		RootDomain  string
+		Domains     []string
+		Certificate []byte
+		PrivateKey  []byte
+	}{
+		Deadline:    time.Now().Add(744 * time.Hour).Unix(), // renew in a month do not wait the 3
+		RootDomain:  rootdomain,
+		Domains:     domains,
+		Certificate: certificate,
+		PrivateKey:  privateKey,
+	})
+	if err != nil {
+		return err
+	}
 
-	b = append(b, certificate...)
-	b = append(b, privateKey...)
+	b := buf.Bytes()
 
-	err := settings.Store.SetKV("certificates/"+domain, b, 0)
+	err = settings.Store.SetKV("certificates/"+rootdomain, b, 0)
 	if err != nil {
 		return err
 	}
 
 	if cache != nil {
-		cache.Set([]byte(domain), b)
+		cache.Set([]byte(rootdomain), b)
 	}
 
 	return nil
@@ -212,13 +227,51 @@ func RetrieveCertificate(domain string) (certificate, privateKey []byte, err err
 		}
 	}
 
-	if uint64(time.Now().Unix()) > binary.BigEndian.Uint64(b[:8]) {
-		return nil, nil, ErrCertificateExpired
+	dec := gob.NewDecoder(bytes.NewReader(b))
+
+	var q struct {
+		Deadline    int64
+		RootDomain  string
+		Domains     []string
+		Certificate []byte
+		PrivateKey  []byte
+	}
+	err = dec.Decode(&q)
+	if err != nil {
+		return nil, nil, err
 	}
 
-	lc := binary.BigEndian.Uint16(b[8:])
-	certificate = b[10 : lc+10]
-	privateKey = b[lc+10:]
+	deadline := time.Unix(q.Deadline, 0)
+	now := time.Now()
+
+	if now.After(deadline) {
+		go func() {
+			ok, err := settings.Store.LockCert(q.RootDomain+"##@@##renewal", 5*time.Minute)
+			if err != nil {
+				fmt.Println("Could not lock certificate for renewal:", q.RootDomain, err)
+				return
+			}
+			if !ok {
+				// another goroutine is already renewing
+				return
+			}
+			defer settings.Store.UnlockCert(q.RootDomain + "##@@##renewal")
+
+			_, _, err = CreateCertificate(q.RootDomain, q.Domains, true)
+			if err != nil {
+				fmt.Println("Could not renew certificate:", q.RootDomain, err)
+				return
+			}
+		}()
+
+		// Let's encrypt certificates are good for 3 months
+		if now.Sub(deadline) > 1116*time.Hour {
+			return nil, nil, ErrCertificateExpired
+		}
+	}
+
+	certificate = q.Certificate
+	privateKey = q.PrivateKey
 
 	return
 }
