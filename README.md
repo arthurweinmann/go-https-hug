@@ -18,9 +18,9 @@ import (
 	"strings"
 
 	"github.com/username/blog/internal/config"
-	"github.com/username/go-https-hug/pkg/acme"
-	"github.com/username/go-https-hug/pkg/router"
-	"github.com/username/go-https-hug/pkg/storage/stores/filesystem"
+	"github.com/arthurweinmann/go-https-hug/pkg/acme"
+	"github.com/arthurweinmann/go-https-hug/pkg/router"
+	"github.com/arthurweinmann/go-https-hug/pkg/storage/stores/filesystem"
 )
 
 func main() {
