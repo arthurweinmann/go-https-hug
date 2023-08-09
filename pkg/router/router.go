@@ -21,6 +21,7 @@ type Router struct {
 	htmlFolderDomainNames []string
 	redirectHTTP2HTTPS    bool
 	perDomain             map[string]func(r *Router, spath []string, w http.ResponseWriter, req *http.Request)
+	hijackStaticPath      map[string]map[string]func(r *Router, w http.ResponseWriter, req *http.Request)
 	onlyHTTPS             bool
 	allowedHeaders        string
 }
@@ -32,6 +33,9 @@ type RouterConfig struct {
 	// folder path
 	ServeHTMLFolder       string
 	HTMLFolderDomainNames []string
+
+	// map[domain][url path]
+	HijackStaticPath map[string]map[string]func(r *Router, w http.ResponseWriter, req *http.Request)
 
 	RedirectHTTP2HTTPS bool
 	OnlyHTTPS          bool
@@ -57,6 +61,7 @@ func NewRouter(config *RouterConfig) (*Router, error) {
 		State:                 config.State,
 		serveHTMLFolder:       config.ServeHTMLFolder,
 		htmlFolderDomainNames: config.HTMLFolderDomainNames,
+		hijackStaticPath:      config.HijackStaticPath,
 		redirectHTTP2HTTPS:    config.RedirectHTTP2HTTPS,
 		onlyHTTPS:             config.OnlyHTTPS,
 		perDomain:             config.PerDomain,
@@ -66,6 +71,10 @@ func NewRouter(config *RouterConfig) (*Router, error) {
 
 func (s *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	stripedhost := utils.StripPort(r.Host)
+
+	if !strings.HasPrefix(r.URL.Path, "/") {
+		r.URL.Path = "/" + r.URL.Path
+	}
 
 	if strings.HasPrefix(r.URL.Path, acme.ACME_CHALLENGE_URL_PREFIX) && len(r.URL.Path) > len(acme.ACME_CHALLENGE_URL_PREFIX) {
 		keyauth, err := acme.GetChallenge(stripedhost, r.URL.Path[len(acme.ACME_CHALLENGE_URL_PREFIX):])
@@ -102,6 +111,17 @@ func (s *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	for i := 0; i < len(s.htmlFolderDomainNames); i++ {
 		if s.htmlFolderDomainNames[i] == stripedhost {
+			if s.hijackStaticPath != nil {
+				d, ok := s.hijackStaticPath[stripedhost]
+				if ok {
+					fn, ok := d[r.URL.Path]
+					if ok {
+						fn(s, w, r)
+						return
+					}
+				}
+			}
+
 			s.dashboard(w, r, s.htmlFolderDomainNames[i])
 			return
 		}
@@ -139,11 +159,6 @@ func (s *Router) dashboard(w http.ResponseWriter, r *http.Request, domain string
 	}
 
 	upath := r.URL.Path
-
-	if !strings.HasPrefix(upath, "/") {
-		upath = "/" + upath
-		r.URL.Path = upath
-	}
 
 	const indexPage = "index.html"
 
