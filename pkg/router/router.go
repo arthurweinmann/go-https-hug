@@ -20,8 +20,7 @@ type Router struct {
 	serveHTMLFolder       string
 	htmlFolderDomainNames []string
 	redirectHTTP2HTTPS    bool
-	perDomain             map[string]func(r *Router, spath []string, w http.ResponseWriter, req *http.Request)
-	hijackStaticPath      map[string]map[string]func(r *Router, w http.ResponseWriter, req *http.Request)
+	perDomainHijack       map[string]func(r *Router, spath []string, w http.ResponseWriter, req *http.Request, domain string) bool
 	onlyHTTPS             bool
 	allowedHeaders        string
 }
@@ -34,15 +33,12 @@ type RouterConfig struct {
 	ServeHTMLFolder       string
 	HTMLFolderDomainNames []string
 
-	// map[domain][url path]
-	HijackStaticPath map[string]map[string]func(r *Router, w http.ResponseWriter, req *http.Request)
-
 	PageViewsPath string
 
 	RedirectHTTP2HTTPS bool
 	OnlyHTTPS          bool
 
-	PerDomain map[string]func(r *Router, spath []string, w http.ResponseWriter, req *http.Request)
+	PerDomainHijack map[string]func(r *Router, spath []string, w http.ResponseWriter, req *http.Request, domain string) bool
 
 	AllowCustomHeaders []string
 }
@@ -63,10 +59,9 @@ func NewRouter(config *RouterConfig) (*Router, error) {
 		State:                 config.State,
 		serveHTMLFolder:       config.ServeHTMLFolder,
 		htmlFolderDomainNames: config.HTMLFolderDomainNames,
-		hijackStaticPath:      config.HijackStaticPath,
 		redirectHTTP2HTTPS:    config.RedirectHTTP2HTTPS,
 		onlyHTTPS:             config.OnlyHTTPS,
-		perDomain:             config.PerDomain,
+		perDomainHijack:       config.PerDomainHijack,
 		allowedHeaders:        allowedHeaders,
 	}, nil
 }
@@ -106,50 +101,14 @@ func (s *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	stripedhost = strings.ToLower(stripedhost)
 
-	h, ok := s.perDomain[stripedhost]
-	if ok {
-		s.api(w, r, stripedhost, h)
-		return
-	}
-
-	for i := 0; i < len(s.htmlFolderDomainNames); i++ {
-		if s.htmlFolderDomainNames[i] == stripedhost {
-			if s.hijackStaticPath != nil {
-				d, ok := s.hijackStaticPath[stripedhost]
-				if ok {
-					fn, ok := d[r.URL.Path]
-					if ok {
-						fn(s, w, r)
-						return
-					}
-				}
-			}
-
-			s.dashboard(w, r, s.htmlFolderDomainNames[i])
-			return
-		}
-	}
-
-	utils.SendError(w, "we do not recognize this domain name", "invalidDomainName", 403)
-	return
-}
-
-func (s *Router) dashboard(w http.ResponseWriter, r *http.Request, domain string) {
-	// Check for .. in the path and respond with an error if it is present
-	// otherwise users could access any file on the server
-	if utils.ContainsDotDot(r.URL.Path) {
-		utils.SendError(w, "invalid Path", "invalidPath", 400)
-		return
-	}
-
 	if r.TLS == nil {
-		err := s.setupCORS(w, "http://"+domain)
+		err := s.setupCORS(w, "http://"+stripedhost)
 		if err != nil {
 			utils.SendError(w, "this origin is not allowed", "invalidOriginHeader", 403)
 			return
 		}
 	} else {
-		err := s.setupCORS(w, "https://"+domain)
+		err := s.setupCORS(w, "https://"+stripedhost)
 		if err != nil {
 			utils.SendError(w, "this origin is not allowed", "invalidOriginHeader", 403)
 			return
@@ -158,6 +117,32 @@ func (s *Router) dashboard(w http.ResponseWriter, r *http.Request, domain string
 
 	if r.Method == "OPTIONS" {
 		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	h, ok := s.perDomainHijack[stripedhost]
+	if ok {
+		if !s.api(w, r, stripedhost, h) {
+			return
+		}
+	}
+
+	for i := 0; i < len(s.htmlFolderDomainNames); i++ {
+		if s.htmlFolderDomainNames[i] == stripedhost {
+			s.dashboard(w, r)
+			return
+		}
+	}
+
+	utils.SendError(w, "we do not recognize this domain name", "invalidDomainName", 403)
+	return
+}
+
+func (s *Router) dashboard(w http.ResponseWriter, r *http.Request) {
+	// Check for .. in the path and respond with an error if it is present
+	// otherwise users could access any file on the server
+	if utils.ContainsDotDot(r.URL.Path) {
+		utils.SendError(w, "invalid Path", "invalidPath", 400)
 		return
 	}
 
@@ -238,29 +223,9 @@ func (s *Router) dashboard(w http.ResponseWriter, r *http.Request, domain string
 	io.Copy(w, content)
 }
 
-func (s *Router) api(w http.ResponseWriter, r *http.Request, domain string, h func(r *Router, spath []string, w http.ResponseWriter, req *http.Request)) {
+func (s *Router) api(w http.ResponseWriter, r *http.Request, domain string, h func(r *Router, spath []string, w http.ResponseWriter, req *http.Request, domain string) bool) bool {
 	spath := utils.SplitSlash(r.URL.Path)
-
-	if r.TLS == nil {
-		err := s.setupCORS(w, "http://"+domain)
-		if err != nil {
-			utils.SendError(w, "this origin is not allowed", "invalidOriginHeader", 403)
-			return
-		}
-	} else {
-		err := s.setupCORS(w, "https://"+domain)
-		if err != nil {
-			utils.SendError(w, "this origin is not allowed", "invalidOriginHeader", 403)
-			return
-		}
-	}
-
-	if r.Method == "OPTIONS" {
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-
-	h(s, spath, w, r)
+	return h(s, spath, w, r, domain)
 }
 
 func (s *Router) setupCORS(w http.ResponseWriter, origin string) error {
