@@ -37,6 +37,8 @@ type RouterConfig struct {
 	// map[domain][url path]
 	HijackStaticPath map[string]map[string]func(r *Router, w http.ResponseWriter, req *http.Request)
 
+	PageViewsPath string
+
 	RedirectHTTP2HTTPS bool
 	OnlyHTTPS          bool
 
@@ -107,6 +109,7 @@ func (s *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h, ok := s.perDomain[stripedhost]
 	if ok {
 		s.api(w, r, stripedhost, h)
+		return
 	}
 
 	for i := 0; i < len(s.htmlFolderDomainNames); i++ {
