@@ -20,7 +20,7 @@ type Router struct {
 	serveHTMLFolder       string
 	htmlFolderDomainNames []string
 	redirectHTTP2HTTPS    bool
-	perDomainHijack       map[string]func(r *Router, spath []string, w http.ResponseWriter, req *http.Request, domain string) bool
+	perDomainHijack       map[string][]func(r *Router, spath []string, w http.ResponseWriter, req *http.Request, domain string) bool
 	onlyHTTPS             bool
 	allowedHeaders        string
 }
@@ -38,7 +38,7 @@ type RouterConfig struct {
 	RedirectHTTP2HTTPS bool
 	OnlyHTTPS          bool
 
-	PerDomainHijack map[string]func(r *Router, spath []string, w http.ResponseWriter, req *http.Request, domain string) bool
+	PerDomainHijack map[string][]func(r *Router, spath []string, w http.ResponseWriter, req *http.Request, domain string) bool
 
 	AllowCustomHeaders []string
 }
@@ -120,10 +120,13 @@ func (s *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h, ok := s.perDomainHijack[stripedhost]
+	hs, ok := s.perDomainHijack[stripedhost]
 	if ok {
-		if !s.api(w, r, stripedhost, h) {
-			return
+		spath := utils.SplitSlash(r.URL.Path)
+		for i := 0; i < len(hs); i++ {
+			if !s.api(w, r, stripedhost, spath, hs[i]) {
+				return
+			}
 		}
 	}
 
@@ -223,8 +226,7 @@ func (s *Router) dashboard(w http.ResponseWriter, r *http.Request) {
 	io.Copy(w, content)
 }
 
-func (s *Router) api(w http.ResponseWriter, r *http.Request, domain string, h func(r *Router, spath []string, w http.ResponseWriter, req *http.Request, domain string) bool) bool {
-	spath := utils.SplitSlash(r.URL.Path)
+func (s *Router) api(w http.ResponseWriter, r *http.Request, domain string, spath []string, h func(r *Router, spath []string, w http.ResponseWriter, req *http.Request, domain string) bool) bool {
 	return h(s, spath, w, r, domain)
 }
 
