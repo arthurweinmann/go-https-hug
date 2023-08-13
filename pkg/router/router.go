@@ -94,7 +94,7 @@ func (s *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if s.onlyHTTPS {
-			utils.SendError(w, "we only serve our website through https", "invalidProtocol", 403)
+			SendError(w, "we only serve our website through https", "invalidProtocol", 403)
 			return
 		}
 	}
@@ -104,13 +104,13 @@ func (s *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.TLS == nil {
 		err := s.setupCORS(w, "http://"+stripedhost)
 		if err != nil {
-			utils.SendError(w, "this origin is not allowed", "invalidOriginHeader", 403)
+			SendError(w, "this origin is not allowed", "invalidOriginHeader", 403)
 			return
 		}
 	} else {
 		err := s.setupCORS(w, "https://"+stripedhost)
 		if err != nil {
-			utils.SendError(w, "this origin is not allowed", "invalidOriginHeader", 403)
+			SendError(w, "this origin is not allowed", "invalidOriginHeader", 403)
 			return
 		}
 	}
@@ -137,7 +137,7 @@ func (s *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	utils.SendError(w, "we do not recognize this domain name", "invalidDomainName", 403)
+	SendError(w, "we do not recognize this domain name", "invalidDomainName", 403)
 	return
 }
 
@@ -145,7 +145,7 @@ func (s *Router) dashboard(w http.ResponseWriter, r *http.Request) {
 	// Check for .. in the path and respond with an error if it is present
 	// otherwise users could access any file on the server
 	if utils.ContainsDotDot(r.URL.Path) {
-		utils.SendError(w, "invalid Path", "invalidPath", 400)
+		SendError(w, "invalid Path", "invalidPath", 400)
 		return
 	}
 
@@ -164,21 +164,21 @@ func (s *Router) dashboard(w http.ResponseWriter, r *http.Request) {
 	valid := false
 	if err != nil || info.IsDir() {
 		if err != nil && !os.IsNotExist(err) {
-			utils.SendInternalError(w, "router:dashboard", err)
+			SendInternalError(w, "router:dashboard", err)
 			return
 		}
 
 		info, err = os.Stat(fullName + ".html")
 		if err != nil || info.IsDir() {
 			if err != nil && !os.IsNotExist(err) {
-				utils.SendInternalError(w, "router:dashboard", err)
+				SendInternalError(w, "router:dashboard", err)
 				return
 			}
 
 			info, err := os.Stat(filepath.Join(fullName, indexPage))
 			if err != nil || info.IsDir() {
 				if err != nil && !os.IsNotExist(err) {
-					utils.SendInternalError(w, "router:dashboard", err)
+					SendInternalError(w, "router:dashboard", err)
 					return
 				}
 			} else {
@@ -195,13 +195,13 @@ func (s *Router) dashboard(w http.ResponseWriter, r *http.Request) {
 
 	if !valid {
 		// TODO: use web 404 dedicated page
-		utils.SendError(w, "page not found", "notFound", 404)
+		SendError(w, "page not found", "notFound", 404)
 		return
 	}
 
 	content, err := os.Open(fullName)
 	if err != nil {
-		utils.SendInternalError(w, "router:dashboard", err)
+		SendInternalError(w, "router:dashboard", err)
 		return
 	}
 
@@ -216,7 +216,7 @@ func (s *Router) dashboard(w http.ResponseWriter, r *http.Request) {
 			l, err := w.Write(buf[nn:])
 			nn += l
 			if err != nil {
-				utils.SendInternalError(w, "router:dashboard", err)
+				SendInternalError(w, "router:dashboard", err)
 				return
 			}
 		}
