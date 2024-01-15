@@ -3,6 +3,7 @@ package router
 import (
 	"fmt"
 	"io"
+	"io/fs"
 	"mime"
 	"net/http"
 	"os"
@@ -23,6 +24,8 @@ type Router struct {
 	perDomainHijack       map[string][]func(r *Router, spath []string, w http.ResponseWriter, req *http.Request, domain string) bool
 	onlyHTTPS             bool
 	allowedHeaders        string
+
+	ignoreNotWorldReadable bool
 }
 
 type RouterConfig struct {
@@ -41,6 +44,12 @@ type RouterConfig struct {
 	PerDomainHijack map[string][]func(r *Router, spath []string, w http.ResponseWriter, req *http.Request, domain string) bool
 
 	AllowCustomHeaders []string
+
+	// Security related
+
+	// If set to true, we ignore files that are not user+group+world readable on the local filesystem,
+	// so even if you accidentally copy a sensitive file into the web root, it's unlikely to be served.
+	IgnoreNotWorldReadable bool
 }
 
 func NewRouter(config *RouterConfig) (*Router, error) {
@@ -56,13 +65,14 @@ func NewRouter(config *RouterConfig) (*Router, error) {
 	allowedHeaders += "Origin,Accept,Access-Control-Allow-Origin,Access-Control-Allow-Methods,Access-Control-Allow-Headers,Access-Control-Allow-Credentials,Accept-Encoding,Accept-Language,Access-Control-Request-Headers,Access-Control-Request-Method,Cache-Control,Connection,Host,Pragma,Referer,Sec-Fetch-Dest,Sec-Fetch-Mode,Sec-Fetch-Site,Set-Cookie,User-Agent,Vary,Method,Content-Type,Content-Length"
 
 	return &Router{
-		State:                 config.State,
-		serveHTMLFolder:       config.ServeHTMLFolder,
-		htmlFolderDomainNames: config.HTMLFolderDomainNames,
-		redirectHTTP2HTTPS:    config.RedirectHTTP2HTTPS,
-		onlyHTTPS:             config.OnlyHTTPS,
-		perDomainHijack:       config.PerDomainHijack,
-		allowedHeaders:        allowedHeaders,
+		State:                  config.State,
+		serveHTMLFolder:        config.ServeHTMLFolder,
+		htmlFolderDomainNames:  config.HTMLFolderDomainNames,
+		redirectHTTP2HTTPS:     config.RedirectHTTP2HTTPS,
+		onlyHTTPS:              config.OnlyHTTPS,
+		perDomainHijack:        config.PerDomainHijack,
+		allowedHeaders:         allowedHeaders,
+		ignoreNotWorldReadable: config.IgnoreNotWorldReadable,
 	}, nil
 }
 
@@ -175,7 +185,7 @@ func (s *Router) dashboard(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			info, err := os.Stat(filepath.Join(fullName, indexPage))
+			info, err = os.Stat(filepath.Join(fullName, indexPage))
 			if err != nil || info.IsDir() {
 				if err != nil && !os.IsNotExist(err) {
 					SendInternalError(w, "router:dashboard", err)
@@ -193,7 +203,7 @@ func (s *Router) dashboard(w http.ResponseWriter, r *http.Request) {
 		valid = true
 	}
 
-	if !valid {
+	if !valid || (s.ignoreNotWorldReadable && !isWorldReadable(info)) {
 		// TODO: use web 404 dedicated page
 		SendError(w, "page not found", "notFound", 404)
 		return
@@ -224,6 +234,15 @@ func (s *Router) dashboard(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", ctype)
 	io.Copy(w, content)
+}
+
+// isWorldReadable checks if a file has user, group, and world read permissions.
+func isWorldReadable(fileInfo fs.FileInfo) bool {
+	// Extract the file mode
+	mode := fileInfo.Mode()
+
+	// Check for user, group, and world read permissions
+	return mode&0400 != 0 && mode&0040 != 0 && mode&0004 != 0
 }
 
 func (s *Router) api(w http.ResponseWriter, r *http.Request, domain string, spath []string, h func(r *Router, spath []string, w http.ResponseWriter, req *http.Request, domain string) bool) bool {
