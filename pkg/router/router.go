@@ -203,9 +203,13 @@ func (s *Router) dashboard(w http.ResponseWriter, r *http.Request) {
 		valid = true
 	}
 
-	if !valid || (s.ignoreNotWorldReadable && !isWorldReadable(info)) {
+	if !valid {
 		// TODO: use web 404 dedicated page
 		SendError(w, "page not found", "notFound", 404)
+		return
+	}
+	if s.ignoreNotWorldReadable && !isWorldReadable(info) {
+		SendError(w, "page not world readable", "notFound", 404)
 		return
 	}
 
