@@ -35,6 +35,15 @@ func StripPort(hostport string) string {
 	return hostport[:colon]
 }
 
+// StripPort also removes IPV6 addresses square brackets
+func StripSchemePort(uri string) string {
+	schemeEndIndex := strings.Index(uri, "://")
+	if schemeEndIndex > -1 {
+		uri = uri[schemeEndIndex+3:]
+	}
+	return StripPort(uri)
+}
+
 func SplitHostPort(hostport string) (string, string) {
 	spl := strings.Split(hostport, ":")
 	if len(spl) == 1 {

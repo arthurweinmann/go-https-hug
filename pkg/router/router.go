@@ -25,6 +25,9 @@ type Router struct {
 	onlyHTTPS             bool
 	allowedHeaders        string
 
+	allowAnyOrigin bool
+	allowOrigins   map[string]bool
+
 	ignoreNotWorldReadable bool
 }
 
@@ -45,6 +48,8 @@ type RouterConfig struct {
 
 	AllowCustomHeaders []string
 
+	AllowOrigins []string
+
 	// Security related
 
 	// If set to true, we ignore files that are not user+group+world readable on the local filesystem,
@@ -64,7 +69,7 @@ func NewRouter(config *RouterConfig) (*Router, error) {
 	}
 	allowedHeaders += "Origin,Accept,Access-Control-Allow-Origin,Access-Control-Allow-Methods,Access-Control-Allow-Headers,Access-Control-Allow-Credentials,Accept-Encoding,Accept-Language,Access-Control-Request-Headers,Access-Control-Request-Method,Cache-Control,Connection,Host,Pragma,Referer,Sec-Fetch-Dest,Sec-Fetch-Mode,Sec-Fetch-Site,Set-Cookie,User-Agent,Vary,Method,Content-Type,Content-Length"
 
-	return &Router{
+	r := &Router{
 		State:                  config.State,
 		serveHTMLFolder:        config.ServeHTMLFolder,
 		htmlFolderDomainNames:  config.HTMLFolderDomainNames,
@@ -73,7 +78,21 @@ func NewRouter(config *RouterConfig) (*Router, error) {
 		perDomainHijack:        config.PerDomainHijack,
 		allowedHeaders:         allowedHeaders,
 		ignoreNotWorldReadable: config.IgnoreNotWorldReadable,
-	}, nil
+	}
+
+	r.allowOrigins = map[string]bool{}
+	if len(config.AllowOrigins) > 0 {
+		for _, o := range config.AllowOrigins {
+			if o == "*" {
+				r.allowOrigins = map[string]bool{}
+				r.allowAnyOrigin = true
+				break
+			}
+			r.allowOrigins[o] = true
+		}
+	}
+
+	return r, nil
 }
 
 func (s *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -111,18 +130,24 @@ func (s *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	stripedhost = strings.ToLower(stripedhost)
 
-	if r.TLS == nil {
-		err := s.setupCORS(w, "http://"+stripedhost)
-		if err != nil {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		if !s.allowAnyOrigin {
 			SendError(w, "this origin is not allowed", "invalidOriginHeader", 403)
 			return
 		}
+		origin = "*"
 	} else {
-		err := s.setupCORS(w, "https://"+stripedhost)
-		if err != nil {
+		if !s.allowAnyOrigin && !s.allowOrigins[origin] {
 			SendError(w, "this origin is not allowed", "invalidOriginHeader", 403)
 			return
 		}
+	}
+
+	err := s.setupCORS(w, origin)
+	if err != nil {
+		SendError(w, "this origin is not allowed", "invalidOriginHeader", 403)
+		return
 	}
 
 	if r.Method == "OPTIONS" {
