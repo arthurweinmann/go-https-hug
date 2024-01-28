@@ -84,7 +84,7 @@ func SendSuccess(w http.ResponseWriter, resp interface{}) {
 
 	b, err := JSONMarshal(resp)
 	if err != nil {
-		SendError(w, err.Error(), "invalidresponse", 501)
+		SendError(w, err.Error(), "invalidresponse", 500)
 		return
 	}
 
