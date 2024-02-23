@@ -43,12 +43,8 @@ func createHandler(us *ACMEUser, isnew bool) error {
 		return err
 	}
 
-	if settings.DNSProvider != nil {
-		dchal, err := newDNSChallenger(settings.DNSProvider)
-		if err != nil {
-			return err
-		}
-		err = client.Challenge.SetDNS01Provider(dchal)
+	if settings.DNSChallenges {
+		err = client.Challenge.SetDNS01Provider(settings.DNSProvider)
 		if err != nil {
 			return err
 		}
