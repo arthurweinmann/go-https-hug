@@ -1,6 +1,7 @@
 package router
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"io/fs"
@@ -10,6 +11,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/arthurweinmann/go-https-hug/internal/utils"
 	"github.com/arthurweinmann/go-https-hug/pkg/acme"
@@ -18,10 +20,12 @@ import (
 type Router struct {
 	State any
 
+	ctx context.Context
+
 	serveHTMLFolder       string
 	htmlFolderDomainNames []string
 	redirectHTTP2HTTPS    bool
-	perDomainHijack       map[string][]func(r *Router, spath []string, w http.ResponseWriter, req *http.Request, domain string) bool
+	perDomainHijack       map[string][]func(ctx context.Context, r *Router, spath []string, w http.ResponseWriter, req *http.Request, domain string) bool
 	onlyHTTPS             bool
 	allowedHeaders        string
 
@@ -31,6 +35,12 @@ type Router struct {
 	sendError func(w http.ResponseWriter, message string, code string, statusCode int)
 
 	ignoreNotWorldReadable bool
+
+	listenAddr        string
+	readHeaderTimeout time.Duration
+	readTimeout       time.Duration
+	writeTimeout      time.Duration
+	idleTimeout       time.Duration
 }
 
 type RouterConfig struct {
@@ -46,7 +56,7 @@ type RouterConfig struct {
 	RedirectHTTP2HTTPS bool
 	OnlyHTTPS          bool
 
-	PerDomainHijack map[string][]func(r *Router, spath []string, w http.ResponseWriter, req *http.Request, domain string) bool
+	PerDomainHijack map[string][]func(ctx context.Context, r *Router, spath []string, w http.ResponseWriter, req *http.Request, domain string) bool
 
 	AllowCustomHeaders []string
 
@@ -59,9 +69,15 @@ type RouterConfig struct {
 	// If set to true, we ignore files that are not user+group+world readable on the local filesystem,
 	// so even if you accidentally copy a sensitive file into the web root, it's unlikely to be served.
 	IgnoreNotWorldReadable bool
+
+	ListenAddr        string
+	ReadHeaderTimeout time.Duration
+	ReadTimeout       time.Duration
+	WriteTimeout      time.Duration
+	IdleTimeout       time.Duration
 }
 
-func NewRouter(config *RouterConfig) (*Router, error) {
+func NewRouter(ctx context.Context, config *RouterConfig) (*Router, error) {
 	if (config.ServeHTMLFolder != "" || config.HTMLFolderDomainNames != nil) &&
 		(config.ServeHTMLFolder == "" || config.HTMLFolderDomainNames == nil) {
 		return nil, fmt.Errorf("when they are provided, we need both ServeHTMLFolder and HTMLFolderDomainName at the same time")
@@ -77,6 +93,7 @@ func NewRouter(config *RouterConfig) (*Router, error) {
 		config.SendError = SendError
 	}
 	r := &Router{
+		ctx:                    ctx,
 		State:                  config.State,
 		serveHTMLFolder:        config.ServeHTMLFolder,
 		htmlFolderDomainNames:  config.HTMLFolderDomainNames,
@@ -86,6 +103,11 @@ func NewRouter(config *RouterConfig) (*Router, error) {
 		allowedHeaders:         allowedHeaders,
 		ignoreNotWorldReadable: config.IgnoreNotWorldReadable,
 		sendError:              config.SendError,
+		listenAddr:             config.ListenAddr,
+		readHeaderTimeout:      config.ReadHeaderTimeout,
+		readTimeout:            config.ReadTimeout,
+		writeTimeout:           config.WriteTimeout,
+		idleTimeout:            config.IdleTimeout,
 	}
 
 	r.allowOrigins = map[string]bool{}
@@ -101,6 +123,30 @@ func NewRouter(config *RouterConfig) (*Router, error) {
 	}
 
 	return r, nil
+}
+
+func (s *Router) ListenAndServe() error {
+	servHTTP := &http.Server{
+		Addr:    s.listenAddr,
+		Handler: s,
+
+		ReadHeaderTimeout: s.readHeaderTimeout,
+		ReadTimeout:       s.readTimeout,
+		WriteTimeout:      s.writeTimeout,
+		IdleTimeout:       s.idleTimeout,
+	}
+
+	go func() {
+		<-s.ctx.Done()
+		servHTTP.Shutdown(context.Background())
+	}()
+
+	err := servHTTP.ListenAndServe()
+	if err != http.ErrServerClosed {
+		return err
+	}
+
+	return nil
 }
 
 func (s *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -282,8 +328,8 @@ func isWorldReadable(fileInfo fs.FileInfo) bool {
 	return mode&0400 != 0 && mode&0040 != 0 && mode&0004 != 0
 }
 
-func (s *Router) api(w http.ResponseWriter, r *http.Request, domain string, spath []string, h func(r *Router, spath []string, w http.ResponseWriter, req *http.Request, domain string) bool) bool {
-	return h(s, spath, w, r, domain)
+func (s *Router) api(w http.ResponseWriter, r *http.Request, domain string, spath []string, h func(ctx context.Context, r *Router, spath []string, w http.ResponseWriter, req *http.Request, domain string) bool) bool {
+	return h(s.ctx, s, spath, w, r, domain)
 }
 
 func (s *Router) setupCORS(w http.ResponseWriter, origin string) error {
