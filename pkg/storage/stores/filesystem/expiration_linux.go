@@ -10,13 +10,6 @@ import (
 	"time"
 )
 
-const (
-	gcSkip = iota
-	gcDefault
-	gcClean
-	gcHard
-)
-
 type codeFile struct {
 	fname string
 	// size    int

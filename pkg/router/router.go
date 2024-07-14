@@ -28,6 +28,8 @@ type Router struct {
 	allowAnyOrigin bool
 	allowOrigins   map[string]bool
 
+	sendError func(w http.ResponseWriter, message string, code string, statusCode int)
+
 	ignoreNotWorldReadable bool
 }
 
@@ -50,6 +52,8 @@ type RouterConfig struct {
 
 	AllowOrigins []string
 
+	SendError func(w http.ResponseWriter, message string, code string, statusCode int)
+
 	// Security related
 
 	// If set to true, we ignore files that are not user+group+world readable on the local filesystem,
@@ -60,7 +64,7 @@ type RouterConfig struct {
 func NewRouter(config *RouterConfig) (*Router, error) {
 	if (config.ServeHTMLFolder != "" || config.HTMLFolderDomainNames != nil) &&
 		(config.ServeHTMLFolder == "" || config.HTMLFolderDomainNames == nil) {
-		return nil, fmt.Errorf("When they are provided, we need both ServeHTMLFolder and HTMLFolderDomainName filled at the same time")
+		return nil, fmt.Errorf("when they are provided, we need both ServeHTMLFolder and HTMLFolderDomainName at the same time")
 	}
 
 	allowedHeaders := strings.Join(config.AllowCustomHeaders, ",")
@@ -69,6 +73,9 @@ func NewRouter(config *RouterConfig) (*Router, error) {
 	}
 	allowedHeaders += "Origin,Accept,Access-Control-Allow-Origin,Access-Control-Allow-Methods,Access-Control-Allow-Headers,Access-Control-Allow-Credentials,Accept-Encoding,Accept-Language,Access-Control-Request-Headers,Access-Control-Request-Method,Cache-Control,Connection,Host,Pragma,Referer,Sec-Fetch-Dest,Sec-Fetch-Mode,Sec-Fetch-Site,Set-Cookie,User-Agent,Vary,Method,Content-Type,Content-Length"
 
+	if config.SendError == nil {
+		config.SendError = SendError
+	}
 	r := &Router{
 		State:                  config.State,
 		serveHTMLFolder:        config.ServeHTMLFolder,
@@ -78,6 +85,7 @@ func NewRouter(config *RouterConfig) (*Router, error) {
 		perDomainHijack:        config.PerDomainHijack,
 		allowedHeaders:         allowedHeaders,
 		ignoreNotWorldReadable: config.IgnoreNotWorldReadable,
+		sendError:              config.SendError,
 	}
 
 	r.allowOrigins = map[string]bool{}
@@ -123,7 +131,7 @@ func (s *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if s.onlyHTTPS {
-			SendError(w, "we only serve our website through https", "invalidProtocol", 403)
+			s.sendError(w, "we only serve our website through https", "invalidProtocol", 403)
 			return
 		}
 	}
@@ -133,20 +141,20 @@ func (s *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	origin := r.Header.Get("Origin")
 	if origin == "" {
 		if !s.allowAnyOrigin {
-			SendError(w, "this origin is not allowed", "invalidOriginHeader", 403)
+			s.sendError(w, "this origin is not allowed", "invalidOriginHeader", 403)
 			return
 		}
 		origin = "*"
 	} else {
 		if !s.allowAnyOrigin && !s.allowOrigins[origin] {
-			SendError(w, "this origin is not allowed", "invalidOriginHeader", 403)
+			s.sendError(w, "this origin is not allowed", "invalidOriginHeader", 403)
 			return
 		}
 	}
 
 	err := s.setupCORS(w, origin)
 	if err != nil {
-		SendError(w, "this origin is not allowed", "invalidOriginHeader", 403)
+		s.sendError(w, "this origin is not allowed", "invalidOriginHeader", 403)
 		return
 	}
 
@@ -172,7 +180,7 @@ func (s *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	SendError(w, "we do not recognize this domain name", "invalidDomainName", 403)
+	s.sendError(w, "we do not recognize this domain name", "invalidDomainName", 403)
 	return
 }
 
@@ -180,7 +188,7 @@ func (s *Router) dashboard(w http.ResponseWriter, r *http.Request) {
 	// Check for .. in the path and respond with an error if it is present
 	// otherwise users could access any file on the server
 	if utils.ContainsDotDot(r.URL.Path) {
-		SendError(w, "invalid Path", "invalidPath", 400)
+		s.sendError(w, "invalid Path", "invalidPath", 400)
 		return
 	}
 
@@ -199,21 +207,21 @@ func (s *Router) dashboard(w http.ResponseWriter, r *http.Request) {
 	valid := false
 	if err != nil || info.IsDir() {
 		if err != nil && !os.IsNotExist(err) {
-			SendInternalError(w, "router:dashboard", err)
+			s.sendError(w, err.Error(), "internalError", 500)
 			return
 		}
 
 		info, err = os.Stat(fullName + ".html")
 		if err != nil || info.IsDir() {
 			if err != nil && !os.IsNotExist(err) {
-				SendInternalError(w, "router:dashboard", err)
+				s.sendError(w, err.Error(), "internalError", 500)
 				return
 			}
 
 			info, err = os.Stat(filepath.Join(fullName, indexPage))
 			if err != nil || info.IsDir() {
 				if err != nil && !os.IsNotExist(err) {
-					SendInternalError(w, "router:dashboard", err)
+					s.sendError(w, err.Error(), "internalError", 500)
 					return
 				}
 			} else {
@@ -230,17 +238,17 @@ func (s *Router) dashboard(w http.ResponseWriter, r *http.Request) {
 
 	if !valid {
 		// TODO: use web 404 dedicated page
-		SendError(w, "page not found", "notFound", 404)
+		s.sendError(w, "page not found", "notFound", 404)
 		return
 	}
 	if s.ignoreNotWorldReadable && !isWorldReadable(info) {
-		SendError(w, "page not world readable", "notFound", 404)
+		s.sendError(w, "page not world readable", "notFound", 404)
 		return
 	}
 
 	content, err := os.Open(fullName)
 	if err != nil {
-		SendInternalError(w, "router:dashboard", err)
+		s.sendError(w, err.Error(), "internalError", 500)
 		return
 	}
 
@@ -255,7 +263,7 @@ func (s *Router) dashboard(w http.ResponseWriter, r *http.Request) {
 			l, err := w.Write(buf[nn:])
 			nn += l
 			if err != nil {
-				SendInternalError(w, "router:dashboard", err)
+				s.sendError(w, err.Error(), "internalError", 500)
 				return
 			}
 		}

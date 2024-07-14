@@ -9,19 +9,28 @@ import (
 	"github.com/arthurweinmann/go-https-hug/pkg/storage"
 )
 
+const (
+	gcSkip = iota
+	gcDefault
+	gcClean
+	gcHard
+)
+
 type Store struct {
 	directory   string
 	lockStore   map[string]bool
 	expirations map[string]time.Time
 	lsMutex     *sync.Mutex
+	withGC      bool
 }
 
-func NewStore(directory string) (*Store, error) {
+func NewStore(directory string, withGC bool) (*Store, error) {
 	out := &Store{
 		directory:   directory,
 		expirations: map[string]time.Time{},
 		lockStore:   map[string]bool{},
 		lsMutex:     &sync.Mutex{},
+		withGC:      withGC,
 	}
 
 	err := os.MkdirAll(directory, 0700)
@@ -29,9 +38,11 @@ func NewStore(directory string) (*Store, error) {
 		return nil, err
 	}
 
-	err = out.runGC(gcDefault)
-	if err != nil {
-		return nil, err
+	if withGC {
+		err = out.runGC(gcDefault)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return out, nil

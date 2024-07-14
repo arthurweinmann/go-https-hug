@@ -9,14 +9,12 @@ import (
 )
 
 type JSONErr struct {
-	Success bool   `json:"success"`
 	Message string `json:"message,omitempty"`
 	Code    string `json:"code,omitempty"`
 }
 
 func MarshalJSONErr(message, code string, args ...any) []byte {
 	b, err := json.Marshal(&JSONErr{
-		Success: false,
 		Message: fmt.Sprintf(message, args...),
 		Code:    code,
 	})
@@ -43,7 +41,6 @@ func SendInternalError(w http.ResponseWriter, origin string, err error) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(501)
 	b, _ := json.Marshal(&JSONErr{
-		Success: false,
 		Message: "it looks like we have an issue on our side, please retry later",
 		Code:    "internal",
 	})
@@ -54,7 +51,6 @@ func SendError(w http.ResponseWriter, message, code string, statusCode int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
 	b, _ := json.Marshal(&JSONErr{
-		Success: false,
 		Message: message,
 		Code:    code,
 	})
@@ -66,7 +62,6 @@ func SendErrorAndLog(w http.ResponseWriter, message, code string, statusCode int
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
 	b, _ := json.Marshal(&JSONErr{
-		Success: false,
 		Message: message,
 		Code:    code,
 	})
