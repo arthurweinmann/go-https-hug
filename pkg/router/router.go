@@ -25,9 +25,11 @@ type Router struct {
 	serveHTMLFolder       string
 	htmlFolderDomainNames []string
 	redirectHTTP2HTTPS    bool
-	perDomainHijack       map[string][]func(ctx context.Context, r *Router, spath []string, w http.ResponseWriter, req *http.Request, domain string) bool
-	onlyHTTPS             bool
-	allowedHeaders        string
+	perDomainHijack       map[string][]func(
+		ctx context.Context, r *Router, spath []string, w http.ResponseWriter, req *http.Request, domain string,
+	) (next bool)
+	onlyHTTPS      bool
+	allowedHeaders string
 
 	allowAnyOrigin bool
 	allowOrigins   map[string]bool
@@ -56,7 +58,9 @@ type RouterConfig struct {
 	RedirectHTTP2HTTPS bool
 	OnlyHTTPS          bool
 
-	PerDomainHijack map[string][]func(ctx context.Context, r *Router, spath []string, w http.ResponseWriter, req *http.Request, domain string) bool
+	PerDomainHijack map[string][]func(
+		ctx context.Context, r *Router, spath []string, w http.ResponseWriter, req *http.Request, domain string,
+	) (next bool)
 
 	AllowCustomHeaders []string
 
@@ -227,7 +231,6 @@ func (s *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.sendError(w, "we do not recognize this domain name", "invalidDomainName", 403)
-	return
 }
 
 func (s *Router) dashboard(w http.ResponseWriter, r *http.Request) {
