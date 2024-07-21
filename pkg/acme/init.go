@@ -31,10 +31,8 @@ type InitParameters struct {
 	DNSProvider   challenge.Provider
 	DNSChallenges bool
 
-	// Each main map key correspond to a root domain name, e.g. example.com
-	// Each sub map key correspond to a subdomain of the parent root domain, e.g. bob.example.com or *.example.com
-	// Please note that the use of the wildcard operator * is only possible when you define a DNS provider for your domains
-	AuthorizedDomains map[string]map[string]bool
+	// Map of authorized root domain names and zero or more of their subdomains.
+	AuthorizedDomains map[string][]string
 
 	LogLevel LogLevel
 	Logger   io.Writer

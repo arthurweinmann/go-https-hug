@@ -127,11 +127,7 @@ func getCertificate(domain string) (*tls.Certificate, error) {
 		}
 
 		domains = append(domains, rootdomain)
-		for d, a := range authd {
-			if a {
-				domains = append(domains, d)
-			}
-		}
+		domains = append(domains, authd...)
 
 		cert, priv, err = CreateCertificate(rootdomain, domains, true)
 		if err != nil {
