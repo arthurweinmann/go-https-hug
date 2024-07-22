@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"log/slog"
+
 	"github.com/arthurweinmann/go-https-hug/internal/utils"
 )
 
@@ -63,7 +65,7 @@ func (s *challengesResolver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if strings.HasPrefix(r.URL.Path, ACME_CHALLENGE_URL_PREFIX) && len(r.URL.Path) > len(ACME_CHALLENGE_URL_PREFIX) {
 		keyauth, err := GetChallenge(stripedhost, r.URL.Path[len(ACME_CHALLENGE_URL_PREFIX):])
 		if err != nil {
-			logthis(ERROR, "certificates.GetChallenge: %v", err)
+			logger.Error("certificates.GetChallenge", slog.String("err", err.Error()))
 			w.WriteHeader(404)
 			return
 		}
@@ -71,12 +73,12 @@ func (s *challengesResolver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
 		w.Write(keyauth)
 
-		logthis(INFO, "served http challenge for: %s", stripedhost)
+		logger.Info("served http challenge for", slog.String("host", stripedhost))
 
 		return
 	}
 
-	logthis(DEBUG, "Received HTTP Request: %s%s", stripedhost, r.URL.Path)
+	logger.Debug("Received HTTP Request", slog.String("host", stripedhost), slog.String("path", r.URL.Path))
 
 	if !s.hashH {
 		if s.redirectToHTTPS {

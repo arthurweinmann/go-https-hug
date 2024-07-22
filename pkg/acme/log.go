@@ -1,6 +1,8 @@
 package acme
 
-import "fmt"
+import (
+	"log/slog"
+)
 
 type LogLevel int
 
@@ -29,8 +31,17 @@ func (l LogLevel) String() string {
 	}
 }
 
-func logthis(level LogLevel, mess string, args ...any) {
-	if level >= settings.LogLevel {
-		settings.Logger.Write([]byte(fmt.Sprintf(">    %s: %s\n", level, fmt.Sprintf(mess, args...))))
+func (l LogLevel) sloglevel() slog.Level {
+	switch l {
+	default:
+		return slog.LevelInfo
+	case DEBUG:
+		return slog.LevelDebug
+	case INFO:
+		return slog.LevelInfo
+	case WARNING:
+		return slog.LevelWarn
+	case ERROR:
+		return slog.LevelError
 	}
 }

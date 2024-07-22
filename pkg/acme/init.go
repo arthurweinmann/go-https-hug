@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"io"
 	"net/mail"
+	"os"
+
+	"log/slog"
 
 	"github.com/VictoriaMetrics/fastcache"
 	"github.com/arthurweinmann/go-https-hug/pkg/storage"
@@ -15,6 +18,7 @@ import (
 
 var cache *fastcache.Cache
 var settings *InitParameters
+var logger *slog.Logger
 
 type InitParameters struct {
 	// if zero, then we do not initialize any cache
@@ -35,7 +39,6 @@ type InitParameters struct {
 	AuthorizedDomains map[string][]string
 
 	LogLevel LogLevel
-	Logger   io.Writer
 }
 
 // Call Init before calling any other function
@@ -52,10 +55,11 @@ func Init(param *InitParameters) error {
 	}
 
 	if settings.LogLevel != NONE {
-		switch settings.Logger.(type) {
-		case nil:
-			return fmt.Errorf("We need a Logger in the parameters when the LogLevel is different from NONE")
-		}
+		logger = slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+			Level: settings.LogLevel.sloglevel(),
+		}))
+	} else {
+		logger = slog.New(slog.NewJSONHandler(io.Discard, nil))
 	}
 
 	if settings.InMemoryCacheSize > 0 {
