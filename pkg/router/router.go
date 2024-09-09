@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"mime"
 	"net/http"
 	"os"
@@ -46,6 +47,8 @@ type Router struct {
 	readTimeout       time.Duration
 	writeTimeout      time.Duration
 	idleTimeout       time.Duration
+
+	logger *slog.Logger
 }
 
 type RouterConfig struct {
@@ -84,6 +87,8 @@ type RouterConfig struct {
 	ReadTimeout       time.Duration
 	WriteTimeout      time.Duration
 	IdleTimeout       time.Duration
+
+	LogLevel utils.LogLevel
 }
 
 type RouterConfigAddr struct {
@@ -124,6 +129,14 @@ func NewRouter(ctx context.Context, config *RouterConfig) (*Router, error) {
 		idleTimeout:            config.IdleTimeout,
 		allowSSLOnDomains:      config.AllowSSLOnDomains,
 		doNoRedirectToHTTPS:    map[string]bool{},
+	}
+
+	if config.LogLevel != utils.NONE {
+		r.logger = slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+			Level: config.LogLevel.Sloglevel(),
+		}))
+	} else {
+		r.logger = slog.New(slog.NewJSONHandler(io.Discard, nil))
 	}
 
 	for _, dnr := range config.DoNoRedirectToHTTPS {
@@ -172,6 +185,7 @@ func (s *Router) ListenAndServe() error {
 		servers = append(servers, servHTTP)
 
 		go func(servHTTP *http.Server) {
+			s.logger.Info("Listening", slog.String("addr", servHTTP.Addr))
 			err := servHTTP.ListenAndServe()
 			if err != http.ErrServerClosed {
 				cherr <- err
@@ -183,8 +197,12 @@ func (s *Router) ListenAndServe() error {
 	var err error
 	select {
 	case err = <-cherr:
+		if err != nil {
+			s.logger.Error("Error from one of the http servers", slog.String("error", err.Error()))
+		}
 	case <-s.ctx.Done():
 	}
+	s.logger.Info("Shutting down..")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -196,6 +214,8 @@ func (s *Router) ListenAndServe() error {
 }
 
 func (s *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	s.logger.Info("Serving request", slog.String("host", r.Host), slog.String("path", r.URL.Path))
+
 	stripedhost := utils.StripPort(r.Host)
 	stripedhost = strings.ToLower(stripedhost)
 

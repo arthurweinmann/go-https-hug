@@ -1,4 +1,4 @@
-package acme
+package utils
 
 import (
 	"log/slog"
@@ -31,7 +31,7 @@ func (l LogLevel) String() string {
 	}
 }
 
-func (l LogLevel) sloglevel() slog.Level {
+func (l LogLevel) Sloglevel() slog.Level {
 	switch l {
 	default:
 		return slog.LevelInfo
