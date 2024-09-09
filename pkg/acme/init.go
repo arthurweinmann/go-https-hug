@@ -12,7 +12,7 @@ import (
 	"log/slog"
 
 	"github.com/VictoriaMetrics/fastcache"
-	"github.com/arthurweinmann/go-https-hug/internal/utils"
+	"github.com/arthurweinmann/go-https-hug/pkg/logging"
 	"github.com/arthurweinmann/go-https-hug/pkg/storage"
 	"github.com/go-acme/lego/v4/challenge"
 )
@@ -39,7 +39,7 @@ type InitParameters struct {
 	// Map of authorized root domain names and zero or more of their subdomains.
 	AuthorizedDomains map[string][]string
 
-	LogLevel utils.LogLevel
+	LogLevel logging.LogLevel
 }
 
 // Call Init before calling any other function
@@ -55,7 +55,7 @@ func Init(param *InitParameters) error {
 		return fmt.Errorf("We need a Store in the parameters")
 	}
 
-	if settings.LogLevel != utils.NONE {
+	if settings.LogLevel != logging.NONE {
 		logger = slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 			Level: settings.LogLevel.Sloglevel(),
 		}))

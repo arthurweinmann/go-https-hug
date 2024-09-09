@@ -17,6 +17,7 @@ import (
 
 	"github.com/arthurweinmann/go-https-hug/internal/utils"
 	"github.com/arthurweinmann/go-https-hug/pkg/acme"
+	"github.com/arthurweinmann/go-https-hug/pkg/logging"
 )
 
 type Router struct {
@@ -88,7 +89,7 @@ type RouterConfig struct {
 	WriteTimeout      time.Duration
 	IdleTimeout       time.Duration
 
-	LogLevel utils.LogLevel
+	LogLevel logging.LogLevel
 }
 
 type RouterConfigAddr struct {
@@ -131,7 +132,7 @@ func NewRouter(ctx context.Context, config *RouterConfig) (*Router, error) {
 		doNoRedirectToHTTPS:    map[string]bool{},
 	}
 
-	if config.LogLevel != utils.NONE {
+	if config.LogLevel != logging.NONE {
 		r.logger = slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 			Level: config.LogLevel.Sloglevel(),
 		}))
