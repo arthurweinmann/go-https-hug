@@ -236,6 +236,7 @@ func RetrieveCertificate(domain string) (certificate, privateKey []byte, err err
 	deadline := time.Unix(q.Deadline, 0)
 	now := time.Now()
 
+	// renewal only
 	if now.After(deadline) {
 		go func() {
 			ok, err := settings.Store.LockCert(q.RootDomain+"##@@##renewal", 5*time.Minute)

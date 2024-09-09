@@ -178,8 +178,12 @@ func (s *Router) ListenAndServe() error {
 					GetCertificate: acme.GetCertificate,
 				}
 			} else {
+				whitelist, err := acme.NewWhiteListedGetCertificate(s.allowSSLOnDomains)
+				if err != nil {
+					return err
+				}
 				servHTTP.TLSConfig = &tls.Config{
-					GetCertificate: acme.NewWhiteListedGetCertificate(s.allowSSLOnDomains).GetCertificate,
+					GetCertificate: whitelist.GetCertificate,
 				}
 			}
 		}
