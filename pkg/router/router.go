@@ -2,6 +2,7 @@ package router
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"io/fs"
@@ -25,20 +26,22 @@ type Router struct {
 	serveHTMLFolder       string
 	htmlFolderDomainNames []string
 	redirectHTTP2HTTPS    bool
+	doNoRedirectToHTTPS   map[string]bool
 	perDomainHijack       map[string][]func(
 		ctx context.Context, r *Router, spath []string, w http.ResponseWriter, req *http.Request, domain string,
 	) (next bool)
 	onlyHTTPS      bool
 	allowedHeaders string
 
-	allowAnyOrigin bool
-	allowOrigins   map[string]bool
+	allowAnyOrigin    bool
+	allowOrigins      map[string]bool
+	allowSSLOnDomains []string
 
 	sendError func(w http.ResponseWriter, message string, code string, statusCode int)
 
 	ignoreNotWorldReadable bool
 
-	listenAddr        string
+	listenAddrs       []*RouterConfigAddr
 	readHeaderTimeout time.Duration
 	readTimeout       time.Duration
 	writeTimeout      time.Duration
@@ -55,8 +58,9 @@ type RouterConfig struct {
 
 	PageViewsPath string
 
-	RedirectHTTP2HTTPS bool
-	OnlyHTTPS          bool
+	RedirectHTTP2HTTPS  bool
+	OnlyHTTPS           bool
+	DoNoRedirectToHTTPS []string // array of domain names
 
 	PerDomainHijack map[string][]func(
 		ctx context.Context, r *Router, spath []string, w http.ResponseWriter, req *http.Request, domain string,
@@ -64,7 +68,8 @@ type RouterConfig struct {
 
 	AllowCustomHeaders []string
 
-	AllowOrigins []string
+	AllowOrigins      []string
+	AllowSSLOnDomains []string // may contain * to match any identifier between two separator points
 
 	SendError func(w http.ResponseWriter, message string, code string, statusCode int)
 
@@ -74,11 +79,16 @@ type RouterConfig struct {
 	// so even if you accidentally copy a sensitive file into the web root, it's unlikely to be served.
 	IgnoreNotWorldReadable bool
 
-	ListenAddr        string
+	ListenAddrs       []*RouterConfigAddr
 	ReadHeaderTimeout time.Duration
 	ReadTimeout       time.Duration
 	WriteTimeout      time.Duration
 	IdleTimeout       time.Duration
+}
+
+type RouterConfigAddr struct {
+	Addr    string
+	IsHTTPS bool
 }
 
 func NewRouter(ctx context.Context, config *RouterConfig) (*Router, error) {
@@ -107,11 +117,17 @@ func NewRouter(ctx context.Context, config *RouterConfig) (*Router, error) {
 		allowedHeaders:         allowedHeaders,
 		ignoreNotWorldReadable: config.IgnoreNotWorldReadable,
 		sendError:              config.SendError,
-		listenAddr:             config.ListenAddr,
+		listenAddrs:            config.ListenAddrs,
 		readHeaderTimeout:      config.ReadHeaderTimeout,
 		readTimeout:            config.ReadTimeout,
 		writeTimeout:           config.WriteTimeout,
 		idleTimeout:            config.IdleTimeout,
+		allowSSLOnDomains:      config.AllowSSLOnDomains,
+		doNoRedirectToHTTPS:    map[string]bool{},
+	}
+
+	for _, dnr := range config.DoNoRedirectToHTTPS {
+		r.doNoRedirectToHTTPS[dnr] = true
 	}
 
 	r.allowOrigins = map[string]bool{}
@@ -130,31 +146,58 @@ func NewRouter(ctx context.Context, config *RouterConfig) (*Router, error) {
 }
 
 func (s *Router) ListenAndServe() error {
-	servHTTP := &http.Server{
-		Addr:    s.listenAddr,
-		Handler: s,
+	var servers []*http.Server
+	cherr := make(chan error, len(s.listenAddrs))
+	for _, laddr := range s.listenAddrs {
+		servHTTP := &http.Server{
+			Addr:    laddr.Addr,
+			Handler: s,
 
-		ReadHeaderTimeout: s.readHeaderTimeout,
-		ReadTimeout:       s.readTimeout,
-		WriteTimeout:      s.writeTimeout,
-		IdleTimeout:       s.idleTimeout,
+			ReadHeaderTimeout: s.readHeaderTimeout,
+			ReadTimeout:       s.readTimeout,
+			WriteTimeout:      s.writeTimeout,
+			IdleTimeout:       s.idleTimeout,
+		}
+		if laddr.IsHTTPS {
+			if len(s.allowSSLOnDomains) == 0 {
+				servHTTP.TLSConfig = &tls.Config{
+					GetCertificate: acme.GetCertificate,
+				}
+			} else {
+				servHTTP.TLSConfig = &tls.Config{
+					GetCertificate: acme.NewWhiteListedGetCertificate(s.allowSSLOnDomains).GetCertificate,
+				}
+			}
+		}
+		servers = append(servers, servHTTP)
+
+		go func(servHTTP *http.Server) {
+			err := servHTTP.ListenAndServe()
+			if err != http.ErrServerClosed {
+				cherr <- err
+				return
+			}
+		}(servHTTP)
 	}
 
-	go func() {
-		<-s.ctx.Done()
-		servHTTP.Shutdown(context.Background())
-	}()
-
-	err := servHTTP.ListenAndServe()
-	if err != http.ErrServerClosed {
-		return err
+	var err error
+	select {
+	case err = <-cherr:
+	case <-s.ctx.Done():
 	}
 
-	return nil
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	for _, serv := range servers {
+		serv.Shutdown(ctx)
+	}
+
+	return err
 }
 
 func (s *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	stripedhost := utils.StripPort(r.Host)
+	stripedhost = strings.ToLower(stripedhost)
 
 	if !strings.HasPrefix(r.URL.Path, "/") {
 		r.URL.Path = "/" + r.URL.Path
@@ -175,18 +218,18 @@ func (s *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if r.TLS == nil {
-		if s.redirectHTTP2HTTPS {
-			utils.Redirect2HTTPS(w, r)
-			return
-		}
+		if !s.doNoRedirectToHTTPS[stripedhost] {
+			if s.redirectHTTP2HTTPS {
+				utils.Redirect2HTTPS(w, r)
+				return
+			}
 
-		if s.onlyHTTPS {
-			s.sendError(w, "we only serve our website through https", "invalidProtocol", 403)
-			return
+			if s.onlyHTTPS {
+				s.sendError(w, "we only serve our website through https", "invalidProtocol", 403)
+				return
+			}
 		}
 	}
-
-	stripedhost = strings.ToLower(stripedhost)
 
 	origin := r.Header.Get("Origin")
 	if origin == "" {
