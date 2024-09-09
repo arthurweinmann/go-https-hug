@@ -329,7 +329,7 @@ func (s *Router) dashboard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	upath := r.URL.Path
+	upath := strings.ToLower(r.URL.Path)
 
 	const indexPage = "index.html"
 
