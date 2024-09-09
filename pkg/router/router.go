@@ -192,6 +192,7 @@ func (s *Router) ListenAndServe() error {
 		go func(servHTTP *http.Server) {
 			s.logger.Info("Listening", slog.String("addr", servHTTP.Addr))
 			err := servHTTP.ListenAndServe()
+			s.logger.Info("Closing Listener", slog.String("addr", servHTTP.Addr))
 			if err != http.ErrServerClosed {
 				cherr <- err
 				return

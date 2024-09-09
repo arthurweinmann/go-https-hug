@@ -110,5 +110,6 @@ func Init(param *InitParameters) error {
 		return err
 	}
 
+	logger.Info("ACME initialized")
 	return nil
 }
