@@ -44,6 +44,7 @@ type InitParameters struct {
 
 // Call Init before calling any other function
 func Init(param *InitParameters) error {
+	logger.Info("Initializing acme")
 	if param == nil {
 		return fmt.Errorf("We need a non nil *InitParameters argument")
 	}
@@ -101,7 +102,9 @@ func Init(param *InitParameters) error {
 		if err != nil {
 			return err
 		}
+		logger.Info("Handler with new user initialized")
 
+		logger.Info("ACME initialized")
 		return nil
 	}
 
@@ -109,6 +112,7 @@ func Init(param *InitParameters) error {
 	if err != nil {
 		return err
 	}
+	logger.Info("Handler initialized")
 
 	logger.Info("ACME initialized")
 	return nil
