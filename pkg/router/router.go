@@ -189,15 +189,20 @@ func (s *Router) ListenAndServe() error {
 		}
 		servers = append(servers, servHTTP)
 
-		go func(servHTTP *http.Server) {
+		go func(servHTTP *http.Server, isHTTPS bool) {
 			s.logger.Info("Listening", slog.String("addr", servHTTP.Addr))
-			err := servHTTP.ListenAndServe()
+			var err error
+			if isHTTPS {
+				err = servHTTP.ListenAndServeTLS()
+			} else {
+				err = servHTTP.ListenAndServe()
+			}
 			s.logger.Info("Closing Listener", slog.String("addr", servHTTP.Addr))
 			if err != http.ErrServerClosed {
 				cherr <- err
 				return
 			}
-		}(servHTTP)
+		}(servHTTP, laddr.IsHTTPS)
 	}
 
 	var err error
