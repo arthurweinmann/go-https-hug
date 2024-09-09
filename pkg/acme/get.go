@@ -48,7 +48,8 @@ type WhiteListedGetCertificate = *whiteListedGetCertificate
 
 func NewWhiteListedGetCertificate(whiteList []string) (WhiteListedGetCertificate, error) {
 	ret := &whiteListedGetCertificate{
-		whiteList: map[string]bool{},
+		whiteList:     map[string]bool{},
+		perRootDomain: map[string][]string{},
 	}
 	for _, d := range whiteList {
 		ret.whiteList[strings.ToLower(d)] = true
