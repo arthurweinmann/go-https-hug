@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"mime"
+	"net"
 	"net/http"
 	"os"
 	"path"
@@ -172,9 +173,11 @@ func (s *Router) ListenAndServe() error {
 			WriteTimeout:      s.writeTimeout,
 			IdleTimeout:       s.idleTimeout,
 		}
+		servers = append(servers, servHTTP)
 		if laddr.IsHTTPS {
+			var tlsConfig *tls.Config
 			if len(s.allowSSLOnDomains) == 0 {
-				servHTTP.TLSConfig = &tls.Config{
+				tlsConfig = &tls.Config{
 					GetCertificate: acme.GetCertificate,
 				}
 			} else {
@@ -182,27 +185,38 @@ func (s *Router) ListenAndServe() error {
 				if err != nil {
 					return err
 				}
-				servHTTP.TLSConfig = &tls.Config{
+				tlsConfig = &tls.Config{
 					GetCertificate: whitelist.GetCertificate,
 				}
 			}
-		}
-		servers = append(servers, servHTTP)
 
-		go func(servHTTP *http.Server, isHTTPS bool) {
-			s.logger.Info("Listening", slog.String("addr", servHTTP.Addr))
-			var err error
-			if isHTTPS {
-				err = servHTTP.ListenAndServeTLS("", "")
-			} else {
-				err = servHTTP.ListenAndServe()
+			ln, err := net.Listen("tcp", laddr.Addr)
+			if err != nil {
+				return err
 			}
-			s.logger.Info("Closing Listener", slog.String("addr", servHTTP.Addr))
-			if err != http.ErrServerClosed {
-				cherr <- err
-				return
-			}
-		}(servHTTP, laddr.IsHTTPS)
+
+			tlsListener := tls.NewListener(ln, tlsConfig)
+
+			go func(servHTTP *http.Server) {
+				s.logger.Info("Listening", slog.String("addr", servHTTP.Addr), slog.String("isHTTPS", "true"))
+				err := servHTTP.Serve(tlsListener)
+				s.logger.Info("Closing Listener", slog.String("addr", servHTTP.Addr))
+				if err != http.ErrServerClosed {
+					cherr <- err
+					return
+				}
+			}(servHTTP)
+		} else {
+			go func(servHTTP *http.Server) {
+				s.logger.Info("Listening", slog.String("addr", servHTTP.Addr), slog.String("isHTTPS", "false"))
+				err := servHTTP.ListenAndServe()
+				s.logger.Info("Closing Listener", slog.String("addr", servHTTP.Addr))
+				if err != http.ErrServerClosed {
+					cherr <- err
+					return
+				}
+			}(servHTTP)
+		}
 	}
 
 	var err error
