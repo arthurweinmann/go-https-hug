@@ -193,7 +193,7 @@ func (s *Router) ListenAndServe() error {
 			s.logger.Info("Listening", slog.String("addr", servHTTP.Addr))
 			var err error
 			if isHTTPS {
-				err = servHTTP.ListenAndServeTLS()
+				err = servHTTP.ListenAndServeTLS("", "")
 			} else {
 				err = servHTTP.ListenAndServe()
 			}
