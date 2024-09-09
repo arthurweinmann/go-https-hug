@@ -44,7 +44,6 @@ type InitParameters struct {
 
 // Call Init before calling any other function
 func Init(param *InitParameters) error {
-	logger.Info("Initializing acme")
 	if param == nil {
 		return fmt.Errorf("We need a non nil *InitParameters argument")
 	}
@@ -63,6 +62,8 @@ func Init(param *InitParameters) error {
 	} else {
 		logger = slog.New(slog.NewJSONHandler(io.Discard, nil))
 	}
+
+	logger.Info("Initializing acme")
 
 	if settings.InMemoryCacheSize > 0 {
 		cache = fastcache.New(settings.InMemoryCacheSize)
